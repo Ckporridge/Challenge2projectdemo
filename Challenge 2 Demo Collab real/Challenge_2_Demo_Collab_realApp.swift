@@ -11,7 +11,7 @@ import SwiftUI
 struct Challenge_2_Demo_Collab_realApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            CalendarView()
         }
     }
 }
