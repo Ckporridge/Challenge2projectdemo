@@ -10,17 +10,44 @@ import Foundation
 
 
 struct SheetView: View {
-    @State private var userInput = ""
+    @State private var text = ""
+    @Environment(\.dismiss) private var dismiss
+    private let day: Date
+    
+    init(day: Date) {
+        self.day = day
+    }
+    
+    private static func key(for day: Date) -> String {
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: day)
+        return String(format: "dayNote-%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+    }
+    
     var body: some View {
-        
-        VStack{
-            TextField("Type some sensible stuff", text: $userInput)
-            
-            
-            
+        VStack {
+            TextField("Type some sensible stuff", text: $text)
+                .padding()
+                .textFieldStyle(.roundedBorder)
         }
-        
-        
+        .padding()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    dismiss()
+                }
+            }
+        }
+        .onAppear {
+            text = UserDefaults.standard.string(forKey: Self.key(for: day)) ?? ""
+        }
+        .onChange(of: day) {
+            text = UserDefaults.standard.string(forKey: Self.key(for: day)) ?? ""
+        }
+        .onChange(of: text) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: Self.key(for: day))
+            UserDefaults.standard.synchronize()
+        }
+        .id(day)
     }
 }
 
@@ -55,11 +82,14 @@ extension Color {
 struct CalendarView: View {
     //Storing color as a Hex string in AppStorage
     @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var namespace
     let daysOfWeek = Date.capitalizedFirstLettersOfWeekdays
     @State private var date = Date.now
     let columns = Array(repeating: GridItem(.flexible()), count: 7)
     @State private var days: [Date] = []
     @State private var sheetshowing = false
+    @State private var selectedDay: Date?
     var body: some View {
         // binding between Color and String
         let colorBinding = Binding<Color>(
@@ -94,22 +124,33 @@ struct CalendarView: View {
                         Text("")
                     } else {
                         Button {
+                            selectedDay = day
                             sheetshowing.toggle()
-                            
                         } label: {
-                            Text(day.formatted(.dateTime.day()))
-                                .fontWeight(.bold)
-                            
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 40)
-                                .background(
-                                    Circle()
-                                        .foregroundStyle(
-                                            Date.now.startOfDay == day.startOfDay
-                                            ? .red.opacity(0.3)
-                                            : Color(hex: hexColor).opacity(0.3)
-                                        )
-                                )
+                            let isToday = Date.now.startOfDay == day.startOfDay
+                            let isSelected = selectedDay?.startOfDay == day.startOfDay
+                            VStack(spacing: 2) {
+                                Text(day.formatted(.dateTime.day()))
+                                    .fontWeight(isToday ? .heavy : .bold)
+                                    .foregroundStyle(isToday ? .red : (colorScheme == .dark ? .white : .secondary))
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(
+                                ZStack {
+                                    if isSelected {
+                                        Circle()
+                                            .fill(Color(hex: hexColor).opacity(0.5))
+                                            .matchedGeometryEffect(id: "selectedDayCircle", in: namespace)
+                                    }
+                                    if isToday {
+                                        Circle()
+                                            .strokeBorder(.red, lineWidth: 2)
+                                    } else if !isSelected {
+                                        Circle()
+                                            .fill(Color(hex: hexColor).opacity(0.15))
+                                    }
+                                }
+                            )
                         }
                         
                         
@@ -118,7 +159,9 @@ struct CalendarView: View {
             }
             
             .sheet(isPresented: $sheetshowing) {
-                SheetView()
+                if let selectedDay {
+                    SheetView(day: selectedDay)
+                }
             }
         }
         .padding()
@@ -128,22 +171,7 @@ struct CalendarView: View {
         .onChange(of: date) {
             days = date.calendarDisplayDays
         }
-        VStack(spacing: 25) {
-            Text("App Theme Color")
-                .font(.title2)
-                .bold()
-            
-            
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(hex: hexColor))
-                .frame(width: 120, height: 120)
-                .shadow(radius: 5)
-            
-            // ColorPicker updating AppStorage via custom binding
-            
-            
-            
-        }
+        
         .padding()
     }
 }
