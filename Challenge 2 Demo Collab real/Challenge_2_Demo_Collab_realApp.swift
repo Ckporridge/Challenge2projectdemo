@@ -6,12 +6,16 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct Challenge_2_Demo_Collab_realApp: App {
     var body: some Scene {
         WindowGroup {
-            CalendarView()
+            NavigationStack {
+                CalendarView()
+            }
         }
+        .modelContainer(for: Note.self)
     }
 }

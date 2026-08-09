@@ -7,29 +7,83 @@
 
 import SwiftUI
 import Foundation
-
+import SwiftData
 
 struct SheetView: View {
-    @State private var text = ""
+    @Environment(\.modelContext) private var modelContext
+    private let dayKey: String
     @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
     private let day: Date
+    @State private var noteToDelete: Note?
+    @Query private var notes: [Note]
+
     
     init(day: Date) {
         self.day = day
+        let key = Self.key(for: day)
+        self.dayKey = key
+        _notes = Query(
+            filter: #Predicate<Note> { $0.dayKey == key },
+            sort: \Note.createdAt
+        )
     }
     
     private static func key(for day: Date) -> String {
         let comps = Calendar.current.dateComponents([.year, .month, .day], from: day)
-        return String(format: "dayNote-%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+        return String(format: "%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+    }
+    
+    private func addNote() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let note = Note(dayKey: dayKey, text: trimmed)
+        withAnimation(.easeOut(duration: 0.25)) {
+            modelContext.insert(note)
+            try? modelContext.save()
+        }
+        text = ""
+    }
+    
+    private func deleteNote() {
+        guard let noteToDelete else { return }
+        modelContext.delete(noteToDelete)
+        try? modelContext.save()
+        self.noteToDelete = nil
     }
     
     var body: some View {
         VStack {
-            TextField("Type some sensible stuff", text: $text)
-                .padding()
-                .textFieldStyle(.roundedBorder)
+            NoteComposer(text: $text) {
+                addNote()
+            }
+            .padding(.top, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(notes) { note in
+                        NoteRowView(note: note) {
+                            noteToDelete = note
+                        }
+                    }
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
         .padding()
+        .alert("Delete this note?", isPresented: Binding(
+            get: { noteToDelete != nil },
+            set: { if !$0 { noteToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                noteToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                deleteNote()
+            }
+        } message: {
+            Text(noteToDelete?.text ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
@@ -37,17 +91,57 @@ struct SheetView: View {
                 }
             }
         }
-        .onAppear {
-            text = UserDefaults.standard.string(forKey: Self.key(for: day)) ?? ""
-        }
-        .onChange(of: day) {
-            text = UserDefaults.standard.string(forKey: Self.key(for: day)) ?? ""
-        }
-        .onChange(of: text) { _, newValue in
-            UserDefaults.standard.set(newValue, forKey: Self.key(for: day))
-            UserDefaults.standard.synchronize()
-        }
         .id(day)
+    }
+}
+
+struct NoteComposer: View {
+    @Binding var text: String
+    var onAdd: () -> Void
+
+    private var isEmpty: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("Type some sensible stuff", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.send)
+                .onSubmit(onAdd)
+
+            if !isEmpty {
+                Button(action: onAdd) {
+                    Image(systemName: "paperplane.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(Color.accentColor)
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.3), value: isEmpty)
+    }
+}
+
+struct NoteRowView: View {
+    let note: Note
+    var onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(note.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onDelete) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -79,6 +173,38 @@ extension Color {
 }
 
 
+struct SettingsView: View {
+    @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let colorBinding = Binding<Color>(
+            get: { Color(hex: hexColor) },
+            set: { newColor in
+                if let hex = newColor.toHex() {
+                    hexColor = hex
+                }
+            }
+        )
+        NavigationStack {
+            Form {
+                LabeledContent("Calendar Color") {
+                    ColorPicker("Select Custom Color", selection: colorBinding)
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct CalendarView: View {
     //Storing color as a Hex string in AppStorage
     @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
@@ -89,26 +215,12 @@ struct CalendarView: View {
     let columns = Array(repeating: GridItem(.flexible()), count: 7)
     @State private var days: [Date] = []
     @State private var sheetshowing = false
+    @State private var settingsShowing = false
     @State private var selectedDay: Date?
     var body: some View {
-        // binding between Color and String
-        let colorBinding = Binding<Color>(
-            get: { Color(hex: hexColor) },
-            set: { newColor in
-                if let hex = newColor.toHex() {
-                    hexColor = hex
-                }
-            }
-        )
         VStack {
-            LabeledContent("Calendar Color") {
-                ColorPicker("Select Custom Color", selection: colorBinding)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(12)
-            }
-            LabeledContent("Date/Time") {
-                DatePicker("", selection: $date)
+            LabeledContent("Date") {
+                DatePicker("", selection: $date, displayedComponents: .date)
             }
             HStack {
                 ForEach(daysOfWeek.indices, id: \.self) { index in
@@ -163,8 +275,20 @@ struct CalendarView: View {
                     SheetView(day: selectedDay)
                 }
             }
+            .sheet(isPresented: $settingsShowing) {
+                SettingsView()
+            }
         }
         .padding()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    settingsShowing = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+            }
+        }
         .onAppear {
             days = date.calendarDisplayDays
         }
