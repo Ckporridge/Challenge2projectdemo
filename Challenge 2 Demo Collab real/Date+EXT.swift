@@ -114,6 +114,12 @@ extension Date {
            let newDay = Calendar.current.date(byAdding: .day, value: dayOffset, to: startOfMonth)
            days.append(newDay!)
        }
+       // Pad with days from the next month so every month page is a full
+       // 6 rows (42 cells) and keeps a stable height when swiping.
+       while days.count < 42 {
+           days.append(day)
+           day = Calendar.current.date(byAdding: .day, value: 1, to: day)!
+       }
        return days
     }
     

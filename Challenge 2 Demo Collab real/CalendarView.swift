@@ -115,7 +115,7 @@ struct NoteComposer: View {
                     Image(systemName: "paperplane.circle.fill")
                         .font(.title)
                         .foregroundStyle(Color.accentColor)
-                }
+                }   
                 .transition(.scale.combined(with: .opacity))
             }
         }
@@ -205,20 +205,68 @@ struct SettingsView: View {
     }
 }
 
+struct MonthGrid: View {
+    let month: Date
+    let hexColor: String
+    @Binding var selectedDay: Date?
+    @Binding var sheetshowing: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var namespace
+    private let columns = Array(repeating: GridItem(.flexible()), count: 7)
+
+    var body: some View {
+        LazyVGrid(columns: columns) {
+            ForEach(month.calendarDisplayDays, id: \.self) { day in
+                if day.monthInt != month.monthInt {
+                    Text("")
+                } else {
+                    Button {
+                        selectedDay = day
+                        sheetshowing = true
+                    } label: {
+                        let isToday = Date.now.startOfDay == day.startOfDay
+                        let isSelected = selectedDay?.startOfDay == day.startOfDay
+                        VStack(spacing: 2) {
+                            Text(day.formatted(.dateTime.day()))
+                                .fontWeight(isToday ? .heavy : .bold)
+                                .foregroundStyle(isToday ? .red : (colorScheme == .dark ? .white : .secondary))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(
+                            ZStack {
+                                if isSelected {
+                                    Circle()
+                                        .fill(Color(hex: hexColor).opacity(0.5))
+                                        .matchedGeometryEffect(id: "selectedDayCircle", in: namespace)
+                                }
+                                if isToday {
+                                    Circle()
+                                        .strokeBorder(.red, lineWidth: 2)
+                                } else if !isSelected {
+                                    Circle()
+                                        .fill(Color(hex: hexColor).opacity(0.15))
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct CalendarView: View {
     //Storing color as a Hex string in AppStorage
     @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
-    @Environment(\.colorScheme) private var colorScheme
-    @Namespace private var namespace
     let daysOfWeek = Date.capitalizedFirstLettersOfWeekdays
     @State private var date = Date.now
-    let columns = Array(repeating: GridItem(.flexible()), count: 7)
-    @State private var days: [Date] = []
+    @State private var selectedTab = 2
     @State private var sheetshowing = false
     @State private var settingsShowing = false
     @State private var selectedDay: Date?
+
     var body: some View {
-        VStack {
+        VStack(spacing: 8) {
             LabeledContent("Date") {
                 DatePicker("", selection: $date, displayedComponents: .date)
             }
@@ -230,53 +278,36 @@ struct CalendarView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            LazyVGrid(columns: columns) {
-                ForEach(days, id: \.self) { day in
-                    if day.monthInt != date.monthInt {
-                        Text("")
-                    } else {
-                        Button {
-                            selectedDay = day
-                            sheetshowing.toggle()
-                        } label: {
-                            let isToday = Date.now.startOfDay == day.startOfDay
-                            let isSelected = selectedDay?.startOfDay == day.startOfDay
-                            VStack(spacing: 2) {
-                                Text(day.formatted(.dateTime.day()))
-                                    .fontWeight(isToday ? .heavy : .bold)
-                                    .foregroundStyle(isToday ? .red : (colorScheme == .dark ? .white : .secondary))
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 40)
-                            .background(
-                                ZStack {
-                                    if isSelected {
-                                        Circle()
-                                            .fill(Color(hex: hexColor).opacity(0.5))
-                                            .matchedGeometryEffect(id: "selectedDayCircle", in: namespace)
-                                    }
-                                    if isToday {
-                                        Circle()
-                                            .strokeBorder(.red, lineWidth: 2)
-                                    } else if !isSelected {
-                                        Circle()
-                                            .fill(Color(hex: hexColor).opacity(0.15))
-                                    }
-                                }
-                            )
-                        }
-                        
-                        
-                    }
+
+            TabView(selection: $selectedTab) {
+                ForEach(-2...2, id: \.self) { offset in
+                    MonthGrid(
+                        month: month(for: offset),
+                        hexColor: hexColor,
+                        selectedDay: $selectedDay,
+                        sheetshowing: $sheetshowing
+                    )
+                    .tag(offset + 2)
                 }
             }
-            
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .onChange(of: selectedTab) { _, newValue in
+                if newValue == 0 {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        date = shiftedMonth(by: -2)
+                    }
+                    selectedTab = 2
+                } else if newValue == 4 {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        date = shiftedMonth(by: 2)
+                    }
+                    selectedTab = 2
+                }
+            }
             .sheet(isPresented: $sheetshowing) {
                 if let selectedDay {
                     SheetView(day: selectedDay)
                 }
-            }
-            .sheet(isPresented: $settingsShowing) {
-                SettingsView()
             }
         }
         .padding()
@@ -289,14 +320,18 @@ struct CalendarView: View {
                 }
             }
         }
-        .onAppear {
-            days = date.calendarDisplayDays
+        .sheet(isPresented: $settingsShowing) {
+            SettingsView()
         }
-        .onChange(of: date) {
-            days = date.calendarDisplayDays
-        }
-        
-        .padding()
+    }
+
+    private func month(for offset: Int) -> Date {
+        let base = Calendar.current.dateInterval(of: .month, for: date)!.start
+        return Calendar.current.date(byAdding: .month, value: offset, to: base) ?? base
+    }
+
+    private func shiftedMonth(by offset: Int) -> Date {
+        month(for: offset)
     }
 }
 
