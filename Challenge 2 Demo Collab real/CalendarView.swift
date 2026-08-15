@@ -215,7 +215,13 @@ struct MonthGrid: View {
     private let columns = Array(repeating: GridItem(.flexible()), count: 7)
 
     var body: some View {
-        LazyVGrid(columns: columns) {
+        LazyVGrid(columns: columns, spacing: 4) {
+            ForEach(Date.capitalizedFirstLettersOfWeekdays.indices, id: \.self) { index in
+                Text(Date.capitalizedFirstLettersOfWeekdays[index])
+                    .fontWeight(.black)
+                    .foregroundStyle(Color(hex: hexColor))
+                    .frame(maxWidth: .infinity)
+            }
             ForEach(month.calendarDisplayDays, id: \.self) { day in
                 if day.monthInt != month.monthInt {
                     Text("")
@@ -227,6 +233,7 @@ struct MonthGrid: View {
                         let isToday = Date.now.startOfDay == day.startOfDay
                         let isSelected = selectedDay?.startOfDay == day.startOfDay
                         VStack(spacing: 2) {
+                            
                             Text(day.formatted(.dateTime.day()))
                                 .fontWeight(isToday ? .heavy : .bold)
                                 .foregroundStyle(isToday ? .red : (colorScheme == .dark ? .white : .secondary))
@@ -381,16 +388,20 @@ struct MonthYearWheelPicker: View {
 struct CalendarView: View {
     //Storing color as a Hex string in AppStorage
     @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
-    let daysOfWeek = Date.capitalizedFirstLettersOfWeekdays
     @State private var date = Date.now
     @State private var isDateExpanded = false
     @State private var selectedTab = 2
     @State private var sheetshowing = false
     @State private var settingsShowing = false
     @State private var selectedDay: Date?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isPortrait: Bool {
+        verticalSizeClass == .regular
+    }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 4) {
             Button {
                 withAnimation(.spring(duration: 0.35)) {
                     isDateExpanded.toggle()
@@ -408,18 +419,11 @@ struct CalendarView: View {
                 }
             }
             .buttonStyle(.plain)
+            .offset(x: 0, y: isPortrait ? 180 : 0)
 
             if isDateExpanded {
                 MonthYearWheelPicker(date: $date)
                     .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            HStack {
-                ForEach(daysOfWeek.indices, id: \.self) { index in
-                    Text(daysOfWeek[index])
-                        .fontWeight(.black)
-                        .foregroundStyle(Color(hex: hexColor))
-                        .frame(maxWidth: .infinity)
-                }
             }
 
             TabView(selection: $selectedTab) {
@@ -434,6 +438,7 @@ struct CalendarView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(maxHeight: .infinity, alignment: .top)
             .onChange(of: selectedTab) { _, newValue in
                 if newValue == 0 {
                     withAnimation(.easeInOut(duration: 0.3)) {
