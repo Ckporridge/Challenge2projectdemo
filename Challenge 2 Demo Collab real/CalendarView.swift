@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Foundation
+import Combine
 import SwiftData
 
 struct SheetView: View {
@@ -302,6 +303,10 @@ struct FixedWheelPicker: UIViewRepresentable {
         let pickerView = UIPickerView()
         pickerView.dataSource = context.coordinator
         pickerView.delegate = context.coordinator
+        pickerView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pickerView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        pickerView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        pickerView.setContentHuggingPriority(.defaultLow, for: .vertical)
         return pickerView
     }
 
@@ -315,47 +320,67 @@ struct FixedWheelPicker: UIViewRepresentable {
     }
 }
 
-struct MonthYearWheelPicker: View {
-    @Binding var date: Date
-    @State private var selectedMonthRow: Int
-    @State private var selectedYearRow: Int
+final class MonthYearPickerModel: ObservableObject {
+    @Published var selectedMonthRow: Int
+    @Published var selectedYearRow: Int
 
-    private let months = Calendar.current.monthSymbols
-    private var years: [Int] {
+    let months: [String]
+
+    var yearValues: [Int] {
         let currentYear = Calendar.current.component(.year, from: Date())
         return Array((currentYear - 50)...(currentYear + 50))
     }
 
-    init(date: Binding<Date>) {
-        _date = date
+    init(date: Date) {
+        self.months = Calendar.current.monthSymbols
         let calendar = Calendar.current
+        self.selectedMonthRow = calendar.component(.month, from: date) - 1
+        let year = calendar.component(.year, from: date)
         let currentYear = calendar.component(.year, from: Date())
         let yearRange = Array((currentYear - 50)...(currentYear + 50))
-        _selectedMonthRow = State(initialValue: calendar.component(.month, from: date.wrappedValue) - 1)
-        let year = calendar.component(.year, from: date.wrappedValue)
-        _selectedYearRow = State(initialValue: yearRange.firstIndex(of: year) ?? 50)
+        self.selectedYearRow = yearRange.firstIndex(of: year) ?? 50
+    }
+
+    func monthRow(for date: Date) -> Int {
+        Calendar.current.component(.month, from: date) - 1
+    }
+
+    func yearRow(for date: Date) -> Int {
+        yearValues.firstIndex(of: Calendar.current.component(.year, from: date)) ?? 50
+    }
+}
+
+struct MonthYearWheelPicker: View {
+    @Binding var date: Date
+    @StateObject private var model: MonthYearPickerModel
+
+    init(date: Binding<Date>) {
+        _date = date
+        _model = StateObject(wrappedValue: MonthYearPickerModel(date: date.wrappedValue))
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             FixedWheelPicker(
-                selection: $selectedMonthRow,
-                rowCount: months.count,
-                titleForRow: { months[$0] }
+                selection: $model.selectedMonthRow,
+                rowCount: model.months.count,
+                titleForRow: { model.months[$0] }
             )
+            .frame(width: 190)
 
             FixedWheelPicker(
-                selection: $selectedYearRow,
-                rowCount: years.count,
-                titleForRow: { String(years[$0]) }
+                selection: $model.selectedYearRow,
+                rowCount: model.yearValues.count,
+                titleForRow: { String(model.yearValues[$0]) }
             )
+            .frame(width: 110)
         }
-        .frame(maxWidth: .infinity)
-        .onChange(of: selectedMonthRow) { _, row in
+        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 180)
+        .onChange(of: model.selectedMonthRow) { _, row in
             updateDate(month: row + 1, year: nil)
         }
-        .onChange(of: selectedYearRow) { _, row in
-            updateDate(month: nil, year: years[row])
+        .onChange(of: model.selectedYearRow) { _, row in
+            updateDate(month: nil, year: model.yearValues[row])
         }
         .onChange(of: date) { _, _ in
             syncFromDate()
@@ -363,11 +388,10 @@ struct MonthYearWheelPicker: View {
     }
 
     private func syncFromDate() {
-        let calendar = Calendar.current
-        let monthRow = calendar.component(.month, from: date) - 1
-        if selectedMonthRow != monthRow { selectedMonthRow = monthRow }
-        let yearRow = years.firstIndex(of: calendar.component(.year, from: date)) ?? 50
-        if selectedYearRow != yearRow { selectedYearRow = yearRow }
+        let monthRow = model.monthRow(for: date)
+        if model.selectedMonthRow != monthRow { model.selectedMonthRow = monthRow }
+        let yearRow = model.yearRow(for: date)
+        if model.selectedYearRow != yearRow { model.selectedYearRow = yearRow }
     }
 
     private func updateDate(month: Int?, year: Int?) {
@@ -419,7 +443,6 @@ struct CalendarView: View {
                 }
             }
             .buttonStyle(.plain)
-            .offset(x: 0, y: isPortrait ? 180 : 0)
 
             if isDateExpanded {
                 MonthYearWheelPicker(date: $date)
