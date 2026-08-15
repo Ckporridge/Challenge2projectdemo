@@ -255,11 +255,135 @@ struct MonthGrid: View {
     }
 }
 
+struct FixedWheelPicker: UIViewRepresentable {
+    @Binding var selection: Int
+    var rowCount: Int
+    var titleForRow: (Int) -> String
+
+    class Coordinator: NSObject, UIPickerViewDataSource, UIPickerViewDelegate {
+        @Binding var selection: Int
+        var rowCount: Int
+        var titleForRow: (Int) -> String
+        var lastAppliedSelection: Int?
+
+        init(selection: Binding<Int>, rowCount: Int, titleForRow: @escaping (Int) -> String) {
+            _selection = selection
+            self.rowCount = rowCount
+            self.titleForRow = titleForRow
+        }
+
+        func numberOfComponents(in pickerView: UIPickerView) -> Int { 1 }
+
+        func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+            rowCount
+        }
+
+        func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+            titleForRow(row)
+        }
+
+        func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+            selection = row
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection, rowCount: rowCount, titleForRow: titleForRow)
+    }
+
+    func makeUIView(context: Context) -> UIPickerView {
+        let pickerView = UIPickerView()
+        pickerView.dataSource = context.coordinator
+        pickerView.delegate = context.coordinator
+        return pickerView
+    }
+
+    func updateUIView(_ uiView: UIPickerView, context: Context) {
+        context.coordinator.rowCount = rowCount
+        context.coordinator.titleForRow = titleForRow
+        if context.coordinator.lastAppliedSelection != selection {
+            uiView.selectRow(selection, inComponent: 0, animated: false)
+            context.coordinator.lastAppliedSelection = selection
+        }
+    }
+}
+
+struct MonthYearWheelPicker: View {
+    @Binding var date: Date
+    @State private var selectedMonthRow: Int
+    @State private var selectedYearRow: Int
+
+    private let months = Calendar.current.monthSymbols
+    private var years: [Int] {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        return Array((currentYear - 50)...(currentYear + 50))
+    }
+
+    init(date: Binding<Date>) {
+        _date = date
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        let yearRange = Array((currentYear - 50)...(currentYear + 50))
+        _selectedMonthRow = State(initialValue: calendar.component(.month, from: date.wrappedValue) - 1)
+        let year = calendar.component(.year, from: date.wrappedValue)
+        _selectedYearRow = State(initialValue: yearRange.firstIndex(of: year) ?? 50)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            FixedWheelPicker(
+                selection: $selectedMonthRow,
+                rowCount: months.count,
+                titleForRow: { months[$0] }
+            )
+
+            FixedWheelPicker(
+                selection: $selectedYearRow,
+                rowCount: years.count,
+                titleForRow: { String(years[$0]) }
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .onChange(of: selectedMonthRow) { _, row in
+            updateDate(month: row + 1, year: nil)
+        }
+        .onChange(of: selectedYearRow) { _, row in
+            updateDate(month: nil, year: years[row])
+        }
+        .onChange(of: date) { _, _ in
+            syncFromDate()
+        }
+    }
+
+    private func syncFromDate() {
+        let calendar = Calendar.current
+        let monthRow = calendar.component(.month, from: date) - 1
+        if selectedMonthRow != monthRow { selectedMonthRow = monthRow }
+        let yearRow = years.firstIndex(of: calendar.component(.year, from: date)) ?? 50
+        if selectedYearRow != yearRow { selectedYearRow = yearRow }
+    }
+
+    private func updateDate(month: Int?, year: Int?) {
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        if let month { comps.month = month }
+        if let year { comps.year = year }
+        let target = Calendar.current.date(from: comps) ?? date
+        if let day = comps.day {
+            let maxDay = Calendar.current.range(of: .day, in: .month, for: target)?.count ?? 28
+            comps.day = min(day, maxDay)
+        }
+        if let updated = Calendar.current.date(from: comps) {
+            date = updated
+        }
+    }
+}
+
 struct CalendarView: View {
     //Storing color as a Hex string in AppStorage
     @AppStorage("userCalendarHex") private var hexColor: String = "#FF0000"
     let daysOfWeek = Date.capitalizedFirstLettersOfWeekdays
     @State private var date = Date.now
+    @State private var isDateExpanded = false
     @State private var selectedTab = 2
     @State private var sheetshowing = false
     @State private var settingsShowing = false
@@ -267,8 +391,27 @@ struct CalendarView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            LabeledContent("Date") {
-                DatePicker("", selection: $date, displayedComponents: .date)
+            Button {
+                withAnimation(.spring(duration: 0.35)) {
+                    isDateExpanded.toggle()
+                }
+            } label: {
+                LabeledContent("Date") {
+                    Text(date.formatted(.dateTime.month(.wide).year()))
+                        .font(.body.bold())
+                        .foregroundStyle(.red)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color.red.opacity(0.15))
+                        )
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isDateExpanded {
+                MonthYearWheelPicker(date: $date)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
             HStack {
                 ForEach(daysOfWeek.indices, id: \.self) { index in
