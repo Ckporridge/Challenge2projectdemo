@@ -432,7 +432,7 @@ struct CalendarView: View {
                 }
             } label: {
                 LabeledContent("Date") {
-                    Text(date.formatted(.dateTime.month(.wide).year()))
+                    Text(month(for: selectedTab - 2).formatted(.dateTime.month(.wide).year()))
                         .font(.body.bold())
                         .foregroundStyle(.red)
                         .padding(8)
